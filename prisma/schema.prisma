@@ -1,0 +1,125 @@
+// SQLite keeps local setup at zero. Enum-like fields are plain strings; the
+// allowed values live in src/lib/constants.ts. Swapping the provider to
+// "postgresql" works as-is (embeddings would then move to pgvector).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String    @id @default(cuid())
+  name        String
+  email       String    @unique
+  role        String    @default("agent") // admin | agent
+  avatarColor String    @default("#6366f1")
+  createdAt   DateTime  @default(now())
+  tickets     Ticket[]
+  messages    Message[]
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  company   String?
+  plan      String   @default("standard")
+  createdAt DateTime @default(now())
+  tickets   Ticket[]
+}
+
+model Ticket {
+  id              Int          @id @default(autoincrement())
+  customerId      String
+  customer        Customer     @relation(fields: [customerId], references: [id])
+  assignedAgentId String?
+  assignedAgent   User?        @relation(fields: [assignedAgentId], references: [id])
+  subject         String
+  status          String       @default("open") // open | in_progress | waiting | resolved
+  priority        String       @default("medium") // low | medium | high | urgent
+  sentiment       String? // positive | neutral | negative
+  category        String?
+  channel         String       @default("email")
+  resolvedByAI    Boolean      @default(false)
+  satisfaction    Int? // 1-5 CSAT
+  firstResponseAt DateTime?
+  resolvedAt      DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  messages        Message[]
+  tags            Tag[]
+  analyses        AIAnalysis[]
+
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+}
+
+model Tag {
+  id      String   @id @default(cuid())
+  name    String   @unique
+  tickets Ticket[]
+}
+
+model Message {
+  id          String   @id @default(cuid())
+  ticketId    Int
+  ticket      Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  senderType  String // customer | agent | system
+  authorId    String?
+  author      User?    @relation(fields: [authorId], references: [id])
+  content     String
+  internal    Boolean  @default(false) // internal notes are never shown to the customer
+  aiGenerated Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+}
+
+model KnowledgeDocument {
+  id        String           @id @default(cuid())
+  title     String
+  category  String
+  content   String
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  chunks    KnowledgeChunk[]
+}
+
+model KnowledgeChunk {
+  id             String            @id @default(cuid())
+  documentId     String
+  document       KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  position       Int
+  content        String
+  embedding      String // JSON-encoded number[]
+  embeddingModel String
+
+  @@index([documentId])
+}
+
+model AIAnalysis {
+  id                String   @id @default(cuid())
+  ticketId          Int
+  ticket            Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  intent            String
+  sentiment         String
+  sentimentScore    Float // -1 (very negative) .. 1 (very positive)
+  emotion           String // frustrated, angry, confused, anxious, satisfied, calm
+  priority          String
+  category          String
+  confidence        Float
+  requiresHuman     Boolean
+  reason            String
+  summary           String
+  suggestedResponse String
+  sources           String   @default("[]") // JSON: KnowledgeSource[]
+  model             String
+  createdAt         DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+}
